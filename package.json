@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:evaluator": "tsx src/engine/testEvaluator.ts",
+    "selar:marketplace": "tsx tools/selar-importer/selar-marketplace-crawler.ts",
     "start": "node dist/server.js",
     "build": "tsc"
   },
