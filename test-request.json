@@ -1,0 +1,29 @@
+
+{
+  "category": "laptop",
+  "location": "NG",
+  "hard_constraints": [
+    {
+      "attribute": "price",
+      "operator": "LESS_THAN_OR_EQUAL",
+      "value": 700000
+    },
+    {
+      "attribute": "ram_gb",
+      "operator": "GREATER_THAN_OR_EQUAL",
+      "value": 16
+    },
+    {
+      "attribute": "shippable_locations",
+      "operator": "CONTAINS",
+      "value": "NG"
+    }
+  ],
+  "soft_preferences": [
+    {
+      "attribute": "battery_life_hours",
+      "value": 12,
+      "weight": 1
+    }
+  ]
+}
