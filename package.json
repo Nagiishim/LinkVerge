@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:evaluator": "tsx src/engine/testEvaluator.ts"
+    "test:evaluator": "tsx src/engine/testEvaluator.ts",
+    "start": "tsx src/server.ts"
   },
   "dependencies": {
     "@google/genai": "^2.23.0",
