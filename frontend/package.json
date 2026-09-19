@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test:evaluator": "tsx src/engine/testEvaluator.ts"
+    "test:evaluator": "tsx src/engine/testEvaluator.ts",
+    "dev": "vite"
   },
   "dependencies": {
     "@google/genai": "^2.23.0",
