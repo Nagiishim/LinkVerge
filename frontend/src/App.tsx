@@ -1,948 +1,783 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Mode = "digital" | "physical";
+type ProductType =
+  | "COURSE"
+  | "EBOOK"
+  | "TEMPLATE"
+  | "GUIDE"
+  | "SOFTWARE"
+  | "COMMUNITY";
 
 type Product = {
-  product_id: string;
+  id: number;
   title: string;
   creator: string;
+  type: ProductType;
+  price: string;
   description: string;
-  category: string;
-  product_type: string;
-  price: number;
-  currency: string;
-  rating: number | null;
-  product_url: string;
-  affiliate_url: string | null;
-  reasons: string[];
+  image: string;
+  accent: string;
 };
 
-const API_URL = "http://localhost:3000";
-const NGN_PER_USD = 1330;
+const products: Product[] = [
+  {
+    id: 1,
+    title: "The Digital Creator Playbook",
+    creator: "Creator Academy",
+    type: "EBOOK",
+    price: "₦7,500",
+    description:
+      "A practical system for building, launching and monetizing digital products.",
+    image:
+      "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=900&q=85",
+    accent: "from-violet-500/40 to-fuchsia-500/20",
+  },
+  {
+    id: 2,
+    title: "Master Digital Marketing",
+    creator: "Growth Lab",
+    type: "COURSE",
+    price: "₦18,000",
+    description:
+      "Learn digital marketing from the fundamentals through real-world campaigns.",
+    image:
+      "https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&w=900&q=85",
+    accent: "from-cyan-500/40 to-blue-500/20",
+  },
+  {
+    id: 3,
+    title: "Ultimate Content System",
+    creator: "Notion Studio",
+    type: "TEMPLATE",
+    price: "₦5,000",
+    description:
+      "A complete content planning workspace for creators and growing businesses.",
+    image:
+      "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=85",
+    accent: "from-emerald-500/30 to-cyan-500/20",
+  },
+];
 
 const categories = [
-  {
-    name: "Tech & Coding",
-    icon: "⌘",
-    description: "Code, AI & development",
-  },
-  {
-    name: "Business & Money",
-    icon: "◈",
-    description: "Business, finance & income",
-  },
-  {
-    name: "Design & Creativity",
-    icon: "✦",
-    description: "Design, graphics & creativity",
-  },
-  {
-    name: "Social Media",
-    icon: "◎",
-    description: "Growth, content & strategy",
-  },
-  {
-    name: "Video & Content",
-    icon: "▶",
-    description: "Video, editing & creation",
-  },
-  {
-    name: "Education",
-    icon: "◇",
-    description: "Learning & academics",
-  },
-  {
-    name: "Personal Development",
-    icon: "↗",
-    description: "Habits, mindset & growth",
-  },
-  {
-    name: "Career & Skills",
-    icon: "▣",
-    description: "Skills & career building",
-  },
-  {
-    name: "Tools & Templates",
-    icon: "⌘",
-    description: "Ready-to-use resources",
-  },
+  "All",
+  "Courses",
+  "Ebooks",
+  "Templates",
+  "Guides",
+  "Software",
+  "Communities",
 ];
 
-const exampleSearches = [
-  "A beginner Python course",
-  "Social media templates",
-  "A course to learn video editing",
+const searchExamples = [
+  "a course to learn digital marketing from scratch",
+  "an ebook about making money online",
+  "Notion templates for running a business",
+  "a beginner course on video editing",
 ];
 
-function formatNaira(amount: number) {
-  return new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
+const tickerItems = [
+  "COURSES",
+  "EBOOKS",
+  "TEMPLATES",
+  "GUIDES",
+  "SOFTWARE",
+  "COMMUNITIES",
+  "DIGITAL PRODUCTS",
+  "CREATOR TOOLS",
+];
 
-function formatUSD(amountNGN: number) {
-  const usd = amountNGN / NGN_PER_USD;
+/* ─────────────────────────────────────────────
+   CINEMATIC INTRO
+───────────────────────────────────────────── */
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(usd);
-}
+function LinkVergeIntro({ onComplete }: { onComplete: () => void }) {
+  const [phase, setPhase] = useState(0);
 
-function App() {
-  const [mode, setMode] = useState<Mode>("digital");
-  const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] =
-    useState<string | null>(null);
+  useEffect(() => {
+    const timers = [
+      window.setTimeout(() => setPhase(1), 220),
+      window.setTimeout(() => setPhase(2), 700),
+      window.setTimeout(() => setPhase(3), 1150),
+      window.setTimeout(() => setPhase(4), 1850),
+      window.setTimeout(() => onComplete(), 2350),
+    ];
 
-  const [results, setResults] = useState<Product[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
-
-  async function handleSearch(searchQuery = query) {
-    const trimmedQuery = searchQuery.trim();
-
-    if (!trimmedQuery) return;
-
-    if (mode === "physical") {
-      setSearchError(
-        "Physical-product matching is coming soon."
-      );
-      setResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    setSearchError("");
-    setResults([]);
-
-    try {
-      const parseResponse = await fetch(
-        `${API_URL}/parse-intent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            query: trimmedQuery,
-          }),
-        }
-      );
-
-      const parseData = await parseResponse.json();
-
-      if (!parseResponse.ok) {
-        throw new Error(
-          parseData.error ||
-            "Unable to understand your request."
-        );
-      }
-
-      const recommendResponse = await fetch(
-        `${API_URL}/recommend`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(parseData.intent),
-        }
-      );
-
-      const recommendData =
-        await recommendResponse.json();
-
-      if (!recommendResponse.ok) {
-        throw new Error(
-          recommendData.error ||
-            "Unable to find matching products."
-        );
-      }
-
-      setResults(
-        Array.isArray(recommendData.recommendations)
-          ? recommendData.recommendations
-          : []
-      );
-
-      setTimeout(() => {
-        document
-          .getElementById("products")
-          ?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-      }, 50);
-    } catch (error) {
-      console.error(error);
-
-      setSearchError(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong."
-      );
-    } finally {
-      setIsSearching(false);
-    }
-  }
-
-  function handleCategoryClick(category: string) {
-    setActiveCategory(category);
-
-    const categoryQuery =
-      `Find me digital products for ${category}`;
-
-    setQuery(categoryQuery);
-    handleSearch(categoryQuery);
-  }
-
-  function scrollToSearch() {
-    document
-      .getElementById("find-search")
-      ?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-
-    setTimeout(() => {
-      document
-        .getElementById("findit-input")
-        ?.focus();
-    }, 500);
-  }
-
-  const hasSearchState =
-    isSearching ||
-    Boolean(searchError) ||
-    results.length > 0 ||
-    Boolean(query.trim());
+    return () => timers.forEach(clearTimeout);
+  }, [onComplete]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#070708] text-white selection:bg-violet-500/30">
-      {/* BACKGROUND */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute left-[-10%] top-[8%] h-[500px] w-[500px] rounded-full bg-violet-700/10 blur-[150px]" />
-        <div className="absolute right-[-12%] top-[25%] h-[500px] w-[500px] rounded-full bg-cyan-500/[0.06] blur-[160px]" />
-        <div className="absolute bottom-[-15%] left-[35%] h-[500px] w-[500px] rounded-full bg-orange-500/[0.05] blur-[160px]" />
+    <div
+      className={`fixed inset-0 z-[9999] overflow-hidden bg-[#050507] text-white transition-opacity duration-600 ${
+        phase >= 4 ? "pointer-events-none opacity-0" : "opacity-100"
+      }`}
+    >
+      {/* ambient light */}
+      <div className="absolute left-1/2 top-1/2 h-[55vw] w-[55vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/20 blur-[150px]" />
+      <div className="absolute left-[20%] top-[20%] h-40 w-40 rounded-full bg-cyan-500/10 blur-[100px]" />
+      <div className="absolute bottom-[10%] right-[15%] h-48 w-48 rounded-full bg-fuchsia-500/10 blur-[110px]" />
+
+      {/* moving grid */}
+      <div
+        className="absolute inset-0 opacity-[0.07]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.35) 1px, transparent 1px)",
+          backgroundSize: "55px 55px",
+          animation: "gridMove 12s linear infinite",
+        }}
+      />
+
+      {/* rings */}
+      <div
+        className={`absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border border-violet-400/20 transition-all duration-1000 ${
+          phase >= 1 ? "scale-[3] opacity-0" : "scale-50 opacity-100"
+        }`}
+      />
+
+      <div
+        className={`absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/20 transition-all duration-1000 delay-100 ${
+          phase >= 1 ? "scale-[4] opacity-0" : "scale-50 opacity-100"
+        }`}
+      />
+
+      {/* center logo */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className={`relative transition-all duration-700 ${
+            phase >= 1
+              ? "scale-100 rotate-0 opacity-100 blur-0"
+              : "scale-[0.65] rotate-[-12deg] opacity-0 blur-xl"
+          }`}
+        >
+          <div className="absolute -inset-8 rounded-[2rem] bg-violet-500/20 blur-3xl" />
+
+          <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[26px] border border-white/15 bg-white shadow-[0_0_80px_rgba(124,58,237,.35)]">
+            <img
+              src="/logo.jpeg"
+              alt="LinkVerge"
+              className="h-full w-full object-cover"
+            />
+
+            <div className="absolute inset-y-0 -left-full w-1/2 rotate-12 bg-white/50 blur-xl transition-all duration-1000" />
+          </div>
+        </div>
       </div>
 
-      {/* NAVBAR */}
-      <nav className="fixed left-0 right-0 top-0 z-50 border-b border-white/[0.06] bg-[#070708]/80 backdrop-blur-2xl">
-        <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between px-5 sm:px-8">
-          <button
-            onClick={() =>
-              window.scrollTo({
-                top: 0,
-                behavior: "smooth",
-              })
-            }
-            className="group flex items-center gap-3"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-white text-sm font-black text-black transition duration-300 group-hover:rotate-6 group-hover:scale-105">
-              F
-            </div>
+      {/* wordmark */}
+      <div
+        className={`absolute inset-x-0 top-[calc(50%+80px)] text-center transition-all duration-700 ${
+          phase >= 2
+            ? "translate-y-0 opacity-100"
+            : "translate-y-5 opacity-0"
+        }`}
+      >
+        <div className="text-[clamp(1.5rem,4vw,3rem)] font-semibold tracking-[0.38em]">
+          LINKVERGE
+        </div>
 
-            <span className="text-lg font-black tracking-[-0.04em]">
-              FindIt
-            </span>
-          </button>
+        <div
+          className={`mx-auto mt-4 h-px bg-gradient-to-r from-transparent via-white/70 to-transparent transition-all duration-700 ${
+            phase >= 3 ? "w-52 opacity-100" : "w-0 opacity-0"
+          }`}
+        />
 
-          <div className="hidden items-center gap-8 text-sm font-medium text-white/40 md:flex">
-            <a
-              href="#categories"
-              className="transition hover:text-white"
-            >
-              Explore
-            </a>
+        <p
+          className={`mt-4 text-[10px] uppercase tracking-[0.35em] text-white/40 transition-all duration-700 ${
+            phase >= 3 ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
+          }`}
+        >
+          Find what actually fits.
+        </p>
+      </div>
 
-            <a
-              href="#how-it-works"
-              className="transition hover:text-white"
-            >
-              How it works
-            </a>
+      <div className="absolute left-6 top-6 text-[9px] tracking-[0.3em] text-white/30">
+        LV / 001
+      </div>
 
-            <a
-              href="#products"
-              className="transition hover:text-white"
-            >
-              Results
-            </a>
+      <div className="absolute bottom-6 right-6 text-[9px] tracking-[0.3em] text-white/30">
+        DIGITAL DISCOVERY ENGINE
+      </div>
+
+      <style>{`
+        @keyframes gridMove {
+          from {
+            transform: translate3d(0,0,0);
+          }
+          to {
+            transform: translate3d(55px,55px,0);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   PRODUCT COVER
+───────────────────────────────────────────── */
+
+function ProductCover({ product }: { product: Product }) {
+  return (
+    <div className="relative aspect-[16/10] overflow-hidden rounded-2xl">
+      <img
+        src={product.image}
+        alt=""
+        className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
+      />
+
+      <div
+        className={`absolute inset-0 bg-gradient-to-br ${product.accent} mix-blend-screen`}
+      />
+
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+
+      <div className="absolute left-4 top-4 rounded-full border border-white/15 bg-black/30 px-3 py-1 text-[9px] font-medium tracking-[0.2em] text-white/80 backdrop-blur-xl">
+        {product.type}
+      </div>
+
+      <div className="absolute bottom-4 left-4 right-4">
+        <div className="text-xs text-white/50">{product.creator}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   MAIN APP
+───────────────────────────────────────────── */
+
+export default function App() {
+  const [introComplete, setIntroComplete] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [searching, setSearching] = useState(false);
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const [mouse, setMouse] = useState({ x: 50, y: 50 });
+
+  const handleIntroComplete = useCallback(() => {
+    setIntroComplete(true);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setExampleIndex((current) => (current + 1) % searchExamples.length);
+    }, 2800);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleMouse = (event: MouseEvent) => {
+      setMouse({
+        x: (event.clientX / window.innerWidth) * 100,
+        y: (event.clientY / window.innerHeight) * 100,
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouse);
+
+    return () => window.removeEventListener("mousemove", handleMouse);
+  }, []);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+
+    setSearching(true);
+
+    await new Promise((resolve) => window.setTimeout(resolve, 900));
+
+    setSearching(false);
+
+    document
+      .getElementById("discover")
+      ?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const filteredProducts = useMemo(() => {
+    if (activeCategory === "All") return products;
+
+    const map: Record<string, ProductType> = {
+      Courses: "COURSE",
+      Ebooks: "EBOOK",
+      Templates: "TEMPLATE",
+      Guides: "GUIDE",
+      Software: "SOFTWARE",
+      Communities: "COMMUNITY",
+    };
+
+    return products.filter(
+      (product) => product.type === map[activeCategory]
+    );
+  }, [activeCategory]);
+
+  if (!introComplete) {
+    return <LinkVergeIntro onComplete={handleIntroComplete} />;
+  }
+
+  return (
+    <main className="min-h-screen overflow-hidden bg-[#050507] text-white">
+      {/* ───────────────── BACKGROUND ───────────────── */}
+
+      <div
+        className="pointer-events-none fixed inset-0 z-0 transition-all duration-700"
+        style={{
+          background: `
+            radial-gradient(
+              600px circle at ${mouse.x}% ${mouse.y}%,
+              rgba(124,58,237,.13),
+              transparent 65%
+            )
+          `,
+        }}
+      />
+
+      <div
+        className="pointer-events-none fixed inset-0 z-0 opacity-[0.035]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)",
+          backgroundSize: "70px 70px",
+          animation: "slowGrid 20s linear infinite",
+        }}
+      />
+
+      {/* ───────────────── NAV ───────────────── */}
+
+      <nav className="relative z-30 mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10">
+        <div className="group flex cursor-pointer items-center gap-3">
+          <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-white/10 bg-white transition duration-500 group-hover:scale-110 group-hover:rotate-3">
+            <img
+              src="/logo.jpeg"
+              alt="LinkVerge"
+              className="h-full w-full object-cover"
+            />
           </div>
 
-          <button
-            onClick={scrollToSearch}
-            className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:-translate-y-0.5 hover:bg-white/90"
-          >
-            Find something
-          </button>
+          <span className="font-semibold tracking-[-0.03em]">
+            LinkVerge
+          </span>
         </div>
+
+        <div className="hidden items-center gap-8 text-sm text-white/50 md:flex">
+          <a
+            href="#discover"
+            className="transition hover:text-white"
+          >
+            Discover
+          </a>
+
+          <a
+            href="#how"
+            className="transition hover:text-white"
+          >
+            How it works
+          </a>
+        </div>
+
+        <button className="group relative overflow-hidden rounded-full border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm text-white/80 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.08]">
+          <span className="relative z-10">Sign in</span>
+          <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition duration-700 group-hover:translate-x-full" />
+        </button>
       </nav>
 
-      <main className="pt-[70px]">
-        {/* HERO */}
-        <section className="relative overflow-hidden">
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-500/70 to-transparent" />
+      {/* ───────────────── HERO ───────────────── */}
 
-          <div className="mx-auto max-w-7xl px-5 pb-24 pt-20 sm:px-8 md:pb-32 md:pt-28">
-            <div className="mx-auto max-w-5xl text-center">
-              <div className="animate-[fadeUp_.6s_ease-out] inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.035] px-4 py-2 text-xs font-semibold text-white/50 backdrop-blur-xl">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-                  <span className="relative h-2 w-2 rounded-full bg-emerald-400" />
-                </span>
+      <section className="relative z-10 mx-auto flex min-h-[760px] max-w-7xl flex-col items-center px-6 pt-20 text-center lg:pt-28">
+        <div className="animate-[fadeUp_.8s_ease-out_both]">
+          <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/[0.08] px-4 py-2 text-[10px] uppercase tracking-[0.22em] text-violet-200/80 backdrop-blur-xl">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-300" />
+            </span>
+            8,120+ products indexed
+          </div>
+        </div>
 
-                Digital products are live
-              </div>
+        <h1 className="mt-9 max-w-5xl animate-[heroIn_1s_.1s_ease-out_both] text-5xl font-semibold tracking-[-0.055em] sm:text-6xl lg:text-8xl">
+          Find what{" "}
+          <span className="relative inline-block">
+            actually
+            <span className="absolute -bottom-1 left-0 h-3 w-full bg-violet-500/20 blur-xl" />
+          </span>{" "}
+          fits.
+        </h1>
 
-              <h1 className="animate-[fadeUp_.7s_.08s_ease-out_both] mt-7 text-[3.4rem] font-black leading-[0.9] tracking-[-0.07em] sm:text-7xl md:text-[6.4rem]">
-                Stop searching.
-                <br />
+        <p className="mt-7 max-w-2xl animate-[fadeUp_.8s_.25s_ease-out_both] text-base leading-7 text-white/45 sm:text-lg">
+          Tell LinkVerge what you need. We understand the request,
+          filter the noise, and surface digital products that actually
+          match.
+        </p>
 
-                <span className="bg-gradient-to-r from-violet-400 via-fuchsia-400 to-orange-300 bg-clip-text text-transparent">
-                  Start finding.
-                </span>
-              </h1>
+        {/* SEARCH */}
+        <div className="group relative mt-12 w-full max-w-3xl animate-[searchIn_1s_.4s_ease-out_both]">
+          <div className="absolute -inset-[1px] rounded-[25px] bg-gradient-to-r from-violet-500/50 via-cyan-400/30 to-fuchsia-500/50 opacity-40 blur-[2px] transition duration-700 group-hover:opacity-80" />
 
-              <p className="animate-[fadeUp_.7s_.16s_ease-out_both] mx-auto mt-7 max-w-2xl text-base leading-7 text-white/40 sm:text-lg">
-                Tell FindIt what you actually need.
-                We turn your request into requirements,
-                then find products that fit.
-              </p>
-
-              {/* SEARCH */}
-              <div
-                id="find-search"
-                className="animate-[fadeUp_.7s_.24s_ease-out_both] mx-auto mt-10 max-w-3xl scroll-mt-28"
+          <div className="relative flex items-center rounded-[24px] border border-white/10 bg-[#0b0b10]/90 p-2 shadow-2xl shadow-violet-950/20 backdrop-blur-2xl">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center text-white/35">
+              <svg
+                width="21"
+                height="21"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
               >
-                <div className="rounded-[27px] bg-gradient-to-r from-violet-500 via-fuchsia-500 to-orange-400 p-[1px] shadow-[0_25px_100px_-35px_rgba(139,92,246,.55)]">
-                  <div className="rounded-[26px] bg-[#101012] p-2">
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <div className="flex min-h-[62px] flex-1 items-center">
-                        <span className="pl-4 pr-2 text-xl text-white/20">
-                          ✦
-                        </span>
-
-                        <input
-                          id="findit-input"
-                          value={query}
-                          onChange={(event) =>
-                            setQuery(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              handleSearch();
-                            }
-                          }}
-                          placeholder="Describe what you're looking for..."
-                          aria-label="Describe what you're looking for"
-                          className="h-full min-w-0 flex-1 bg-transparent px-2 text-base font-medium text-white outline-none placeholder:text-white/25"
-                        />
-
-                        {query && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQuery("");
-                              setResults([]);
-                              setSearchError("");
-                            }}
-                            className="mr-2 flex h-8 w-8 items-center justify-center rounded-full text-white/25 transition hover:bg-white/[0.06] hover:text-white/70"
-                            aria-label="Clear search"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => handleSearch()}
-                        disabled={
-                          isSearching || !query.trim()
-                        }
-                        className="min-h-[58px] rounded-[19px] bg-white px-7 font-bold text-black transition duration-300 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {isSearching
-                          ? "Finding..."
-                          : "Find it →"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <span className="mr-1 py-2 text-xs text-white/20">
-                    Try:
-                  </span>
-
-                  {exampleSearches.map((example) => (
-                    <button
-                      key={example}
-                      onClick={() => {
-                        setQuery(example);
-                        handleSearch(example);
-                      }}
-                      className="rounded-full border border-white/[0.07] bg-white/[0.025] px-3.5 py-2 text-xs font-medium text-white/35 transition hover:-translate-y-0.5 hover:border-white/15 hover:bg-white/[0.06] hover:text-white/75"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* MODE SWITCH */}
-              <div className="animate-[fadeUp_.7s_.32s_ease-out_both] mx-auto mt-10 flex w-fit rounded-full border border-white/[0.07] bg-white/[0.025] p-1.5 backdrop-blur-xl">
-                <button
-                  onClick={() => {
-                    setMode("digital");
-                    setResults([]);
-                    setSearchError("");
-                  }}
-                  className={`rounded-full px-5 py-2.5 text-sm font-bold transition-all ${
-                    mode === "digital"
-                      ? "bg-white text-black shadow-lg"
-                      : "text-white/35 hover:text-white"
-                  }`}
-                >
-                  Digital
-                </button>
-
-                <button
-                  onClick={() => {
-                    setMode("physical");
-                    setResults([]);
-                    setSearchError("");
-                  }}
-                  className={`rounded-full px-5 py-2.5 text-sm font-bold transition-all ${
-                    mode === "physical"
-                      ? "bg-white text-black shadow-lg"
-                      : "text-white/35 hover:text-white"
-                  }`}
-                >
-                  Physical
-                  <span className="ml-1.5 text-[9px] font-black tracking-wider opacity-50">
-                    SOON
-                  </span>
-                </button>
-              </div>
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
+              </svg>
             </div>
 
-            {/* HERO TRUST ROW */}
-            <div className="mx-auto mt-20 grid max-w-3xl grid-cols-3 border-y border-white/[0.06] py-7">
-              <div className="text-center">
-                <div className="text-lg font-black">
-                  Natural
+            <div className="relative min-w-0 flex-1 text-left">
+              {!query && (
+                <div className="pointer-events-none absolute inset-0 flex items-center overflow-hidden text-sm text-white/25">
+                  <span
+                    key={exampleIndex}
+                    className="animate-[placeholderIn_.5s_ease-out_both]"
+                  >
+                    Try "{searchExamples[exampleIndex]}"
+                  </span>
                 </div>
-                <div className="mt-1 text-[11px] text-white/25">
-                  language search
-                </div>
-              </div>
+              )}
 
-              <div className="border-x border-white/[0.06] text-center">
-                <div className="text-lg font-black">
-                  Real
-                </div>
-                <div className="mt-1 text-[11px] text-white/25">
-                  products
-                </div>
-              </div>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleSearch();
+                }}
+                className="w-full bg-transparent py-4 text-sm text-white outline-none placeholder:text-transparent"
+                placeholder=""
+              />
+            </div>
 
-              <div className="text-center">
-                <div className="text-lg font-black">
-                  Smart
-                </div>
-                <div className="mt-1 text-[11px] text-white/25">
-                  matching
-                </div>
+            <button
+              onClick={handleSearch}
+              disabled={searching}
+              className="group/button relative hidden overflow-hidden rounded-2xl bg-white px-6 py-4 text-sm font-medium text-black transition duration-300 hover:scale-[1.03] sm:block"
+            >
+              <span className="relative z-10">
+                {searching ? "Searching..." : "Find"}
+              </span>
+
+              <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-violet-200 to-transparent transition duration-700 group-hover/button:translate-x-full" />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-center gap-2 animate-[fadeUp_.8s_.6s_ease-out_both]">
+          {["Courses", "Ebooks", "Templates", "Guides"].map((item) => (
+            <button
+              key={item}
+              onClick={() => {
+                setActiveCategory(item);
+                document
+                  .getElementById("discover")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="rounded-full border border-white/[0.07] bg-white/[0.025] px-4 py-2 text-xs text-white/35 transition duration-300 hover:-translate-y-0.5 hover:border-violet-400/20 hover:bg-violet-500/[0.06] hover:text-white/70"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-16 flex items-center gap-3 text-[10px] uppercase tracking-[0.25em] text-white/20">
+          <span>8,120+ digital products</span>
+          <span className="h-1 w-1 rounded-full bg-violet-400/50" />
+          <span>One intelligent search</span>
+        </div>
+      </section>
+
+      {/* ───────────────── PRODUCT UNIVERSE ───────────────── */}
+
+      <section className="relative z-10 mx-auto flex max-w-7xl justify-center px-6 pb-32">
+        <div className="relative h-[500px] w-full max-w-5xl">
+          {/* glow */}
+          <div className="absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/20 blur-[100px] animate-pulse" />
+
+          {/* orbit lines */}
+          <div className="absolute left-1/2 top-1/2 h-[320px] w-[320px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/[0.05]" />
+
+          <div className="absolute left-1/2 top-1/2 h-[470px] w-[470px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/[0.035]" />
+
+          {/* center */}
+          <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
+            <div className="relative flex h-28 w-28 items-center justify-center rounded-[32px] border border-white/15 bg-[#0b0b10]/90 shadow-[0_0_100px_rgba(124,58,237,.25)] backdrop-blur-xl transition duration-500 hover:scale-110">
+              <div className="absolute -inset-3 rounded-[38px] border border-violet-400/10 animate-ping" />
+
+              <img
+                src="/logo.jpeg"
+                alt="LinkVerge"
+                className="h-16 w-16 rounded-2xl object-cover"
+              />
+            </div>
+          </div>
+
+          {/* cards */}
+          <div className="absolute left-[5%] top-[15%] animate-[floatOne_6s_ease-in-out_infinite]">
+            <FloatingProduct
+              product={products[0]}
+              rotate="-rotate-6"
+            />
+          </div>
+
+          <div className="absolute right-[4%] top-[20%] animate-[floatTwo_7s_ease-in-out_infinite]">
+            <FloatingProduct
+              product={products[1]}
+              rotate="rotate-6"
+            />
+          </div>
+
+          <div className="absolute bottom-[10%] left-[18%] animate-[floatThree_8s_ease-in-out_infinite]">
+            <FloatingProduct
+              product={products[2]}
+              rotate="rotate-3"
+            />
+          </div>
+
+          <div className="absolute bottom-[8%] right-[17%] hidden animate-[floatOne_7s_1s_ease-in-out_infinite] sm:block">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-4 backdrop-blur-xl">
+              <div className="text-[9px] uppercase tracking-[0.25em] text-white/25">
+                Decision engine
+              </div>
+              <div className="mt-2 text-sm text-white/70">
+                Match → Rank → Explain
               </div>
             </div>
           </div>
-        </section>
 
-        {/* PHYSICAL */}
-        {mode === "physical" && (
-          <section className="mx-auto max-w-4xl px-5 pb-24 sm:px-8">
-            <div className="relative overflow-hidden rounded-[32px] border border-white/[0.08] bg-[#101012] p-8 shadow-2xl sm:p-14">
-              <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-violet-600/20 blur-[90px]" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-center">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-white/20">
+              One search → thousands of possibilities
+            </p>
+          </div>
+        </div>
+      </section>
 
-              <div className="relative">
-                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.06] text-xl text-violet-300">
-                  ◈
-                </div>
+      {/* ───────────────── TICKER ───────────────── */}
 
-                <p className="text-xs font-black uppercase tracking-[.2em] text-white/25">
-                  Coming soon
-                </p>
-
-                <h2 className="mt-3 max-w-xl text-4xl font-black tracking-tight sm:text-5xl">
-                  The same intelligence.
-                  <br />
-                  <span className="text-white/30">
-                    For physical products.
-                  </span>
-                </h2>
-
-                <p className="mt-5 max-w-xl leading-7 text-white/40">
-                  FindIt will eventually compare products
-                  across retailers using your needs, budget
-                  and preferences.
-                </p>
+      <section className="relative overflow-hidden border-y border-white/[0.06] py-5">
+        <div className="flex w-max animate-[marquee_25s_linear_infinite]">
+          {[...tickerItems, ...tickerItems, ...tickerItems].map(
+            (item, index) => (
+              <div
+                key={`${item}-${index}`}
+                className="mx-8 flex items-center gap-8 text-[10px] font-medium tracking-[0.28em] text-white/20"
+              >
+                {item}
+                <span className="h-1 w-1 rounded-full bg-violet-400/40" />
               </div>
-            </div>
-          </section>
-        )}
+            )
+          )}
+        </div>
+      </section>
 
-        {/* CATEGORIES */}
-        {mode === "digital" && (
-          <section
-            id="categories"
-            className="mx-auto max-w-7xl px-5 py-24 sm:px-8"
-          >
-            <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[.2em] text-white/25">
-                  Explore categories
-                </p>
+      {/* ───────────────── DISCOVER ───────────────── */}
 
-                <h2 className="mt-3 text-4xl font-black tracking-[-0.05em] sm:text-5xl">
-                  Start with a category.
-                </h2>
-              </div>
+      <section
+        id="discover"
+        className="relative z-10 mx-auto max-w-7xl px-6 py-32 lg:px-10"
+      >
+        <div className="max-w-3xl">
+          <div className="mb-5 text-[10px] uppercase tracking-[0.3em] text-violet-300/60">
+            Discovery
+          </div>
 
-              <p className="max-w-sm text-sm leading-6 text-white/35">
-                Or skip the categories entirely and just
-                describe what you need above.
-              </p>
-            </div>
+          <h2 className="text-4xl font-semibold tracking-[-0.04em] sm:text-6xl">
+            Digital products.
+            <br />
+            <span className="text-white/30">Without the noise.</span>
+          </h2>
 
-            <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              {categories.map((category) => (
-                <button
-                  key={category.name}
-                  onClick={() =>
-                    handleCategoryClick(category.name)
-                  }
-                  className={`group relative min-h-[155px] overflow-hidden rounded-[24px] border p-5 text-left transition-all duration-300 hover:-translate-y-1 ${
-                    activeCategory === category.name
-                      ? "border-violet-400/40 bg-violet-500/10"
-                      : "border-white/[0.07] bg-white/[0.025] hover:border-white/15 hover:bg-white/[0.045]"
-                  }`}
-                >
-                  <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg transition duration-300 group-hover:rotate-6 ${
-                      activeCategory === category.name
-                        ? "bg-violet-500/20 text-violet-300"
-                        : "bg-white/[0.05] text-white/60"
-                    }`}
-                  >
-                    {category.icon}
+          <p className="mt-6 max-w-xl text-sm leading-7 text-white/40">
+            Browse by category, or let LinkVerge understand exactly
+            what you are looking for.
+          </p>
+        </div>
+
+        <div className="mt-12 flex gap-2 overflow-x-auto pb-2">
+          {categories.map((category) => (
+            <button
+              key={category}
+              onClick={() => setActiveCategory(category)}
+              className={`whitespace-nowrap rounded-full border px-5 py-2.5 text-xs transition duration-300 ${
+                activeCategory === category
+                  ? "border-white/20 bg-white text-black"
+                  : "border-white/[0.08] bg-white/[0.025] text-white/40 hover:border-white/15 hover:text-white"
+              }`}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-10 grid gap-5 md:grid-cols-3">
+          {filteredProducts.map((product, index) => (
+            <div
+              key={product.id}
+              className="group animate-[cardIn_.7s_ease-out_both]"
+              style={{
+                animationDelay: `${index * 100}ms`,
+              }}
+            >
+              <div className="relative overflow-hidden rounded-[25px] border border-white/[0.07] bg-white/[0.025] p-2 backdrop-blur-xl transition duration-500 hover:-translate-y-2 hover:border-violet-400/20 hover:bg-white/[0.04] hover:shadow-[0_25px_80px_rgba(124,58,237,.12)]">
+                <ProductCover product={product} />
+
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-base font-medium text-white/90">
+                        {product.title}
+                      </h3>
+
+                      <p className="mt-1 text-xs text-white/30">
+                        {product.creator}
+                      </p>
+                    </div>
+
+                    <span className="whitespace-nowrap text-sm font-medium text-white/70">
+                      {product.price}
+                    </span>
                   </div>
 
-                  <div className="mt-7 text-sm font-bold">
-                    {category.name}
-                  </div>
-
-                  <div className="mt-1 text-xs leading-5 text-white/30">
-                    {category.description}
-                  </div>
-
-                  <span className="absolute bottom-5 right-5 text-white/15 transition group-hover:translate-x-1 group-hover:text-white/60">
-                    →
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* RESULTS */}
-        {mode === "digital" && hasSearchState && (
-          <section
-            id="products"
-            className="scroll-mt-16 border-y border-white/[0.06] bg-[#0b0b0d]"
-          >
-            <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8">
-              <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[.2em] text-white/25">
-                    FindIt results
+                  <p className="mt-4 text-xs leading-6 text-white/35">
+                    {product.description}
                   </p>
 
-                  <h2 className="mt-3 text-4xl font-black tracking-[-0.05em]">
-                    {isSearching
-                      ? "Finding your matches..."
-                      : results.length > 0
-                        ? "Here’s what fits."
-                        : "Let's refine that."}
-                  </h2>
-
-                  {!isSearching &&
-                    !searchError &&
-                    results.length > 0 && (
-                      <p className="mt-2 text-sm text-white/30">
-                        Based on your request, ranked by fit.
-                      </p>
-                    )}
-                </div>
-
-                {!isSearching &&
-                  !searchError &&
-                  results.length > 0 && (
-                    <span className="w-fit rounded-full border border-white/[0.07] bg-white/[0.03] px-4 py-2 text-xs font-bold text-white/40">
-                      {results.length}{" "}
-                      {results.length === 1
-                        ? "match"
-                        : "matches"}
+                  <button className="mt-5 flex w-full items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.025] px-4 py-3 text-xs text-white/45 transition hover:border-violet-400/20 hover:bg-violet-500/[0.06] hover:text-white">
+                    <span>View match</span>
+                    <span className="transition-transform duration-300 group-hover:translate-x-1">
+                      →
                     </span>
-                  )}
+                  </button>
+                </div>
               </div>
-
-              {/* LOADING */}
-              {isSearching && (
-                <div className="mt-12 grid gap-5 md:grid-cols-3">
-                  {[1, 2, 3].map((item) => (
-                    <div
-                      key={item}
-                      className="animate-pulse overflow-hidden rounded-[28px] border border-white/[0.06] bg-white/[0.02]"
-                    >
-                      <div className="h-40 bg-white/[0.035]" />
-
-                      <div className="p-6">
-                        <div className="h-3 w-20 rounded bg-white/[0.06]" />
-                        <div className="mt-5 h-6 w-4/5 rounded bg-white/[0.06]" />
-                        <div className="mt-3 h-4 w-1/3 rounded bg-white/[0.05]" />
-
-                        <div className="mt-7 space-y-2">
-                          <div className="h-3 rounded bg-white/[0.04]" />
-                          <div className="h-3 w-5/6 rounded bg-white/[0.04]" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ERROR */}
-              {searchError && !isSearching && (
-                <div className="mt-10 rounded-[28px] border border-red-400/15 bg-red-500/[0.07] p-7">
-                  <div className="flex gap-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-400/10 text-red-300">
-                      !
-                    </div>
-
-                    <div>
-                      <div className="font-bold text-red-200">
-                        We couldn't complete that search.
-                      </div>
-
-                      <div className="mt-1 text-sm leading-6 text-red-200/50">
-                        {searchError}
-                      </div>
-
-                      <button
-                        onClick={() => handleSearch()}
-                        className="mt-4 rounded-full border border-red-300/15 bg-red-300/10 px-4 py-2 text-xs font-bold text-red-200 transition hover:bg-red-300/15"
-                      >
-                        Try again
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* EMPTY */}
-              {!isSearching &&
-                !searchError &&
-                results.length === 0 &&
-                query.trim() && (
-                  <div className="mt-10 rounded-[32px] border border-white/[0.06] bg-white/[0.025] p-12 text-center">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.04] text-2xl text-white/25">
-                      ⌁
-                    </div>
-
-                    <h3 className="mt-5 text-xl font-black">
-                      No close matches yet.
-                    </h3>
-
-                    <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/30">
-                      Try adding something specific like your
-                      skill level, topic, format or budget.
-                    </p>
-
-                    <div className="mt-6 flex flex-wrap justify-center gap-2">
-                      {[
-                        "under ₦10,000",
-                        "for beginners",
-                        "video course",
-                      ].map((suggestion) => (
-                        <button
-                          key={suggestion}
-                          onClick={() =>
-                            setQuery(
-                              `${query} ${suggestion}`
-                            )
-                          }
-                          className="rounded-full border border-white/[0.07] px-3 py-2 text-xs text-white/35 transition hover:border-white/15 hover:text-white/70"
-                        >
-                          + {suggestion}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-              {/* PRODUCT GRID */}
-              {results.length > 0 && (
-                <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                  {results.map((product, index) => (
-                    <article
-                      key={product.product_id}
-                      className="group flex flex-col overflow-hidden rounded-[30px] border border-white/[0.07] bg-[#111113] transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.14] hover:bg-[#151517] hover:shadow-[0_25px_80px_-25px_rgba(0,0,0,.8)]"
-                      style={{
-                        animation: `fadeUp .5s ${
-                          index * 0.07
-                        }s ease-out both`,
-                      }}
-                    >
-                      {/* VISUAL */}
-                      <div className="relative h-44 overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-br from-violet-700 via-fuchsia-600 to-orange-500 transition duration-500 group-hover:scale-105" />
-
-                        <div className="absolute inset-0 bg-black/10" />
-
-                        <div className="absolute -right-10 -top-16 h-44 w-44 rounded-full bg-white/15 blur-2xl" />
-
-                        <div className="relative flex h-full flex-col justify-between p-6">
-                          <div className="flex items-center justify-between">
-                            <span className="rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white/80 backdrop-blur">
-                              {product.product_type}
-                            </span>
-
-                            {product.rating !== null && (
-                              <span className="rounded-full bg-black/20 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
-                                ★ {product.rating}
-                              </span>
-                            )}
-                          </div>
-
-                          <div>
-                            <div className="text-[10px] font-bold uppercase tracking-[.2em] text-white/55">
-                              {product.category}
-                            </div>
-
-                            <div className="mt-1 line-clamp-2 max-w-[90%] text-xl font-black leading-tight">
-                              {product.title}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* CONTENT */}
-                      <div className="flex flex-1 flex-col p-6">
-                        <div className="text-sm font-semibold text-white/35">
-                          by {product.creator}
-                        </div>
-
-                        <p className="mt-4 line-clamp-3 text-sm leading-6 text-white/40">
-                          {product.description}
-                        </p>
-
-                        <div className="mt-6 border-t border-white/[0.05] pt-5">
-                          <div className="text-2xl font-black tracking-tight">
-                            {product.currency ===
-                            "USD"
-                              ? formatUSD(
-                                  product.price *
-                                    NGN_PER_USD
-                                )
-                              : formatNaira(
-                                  product.price
-                                )}
-                          </div>
-
-                          <div className="mt-1 text-xs font-medium text-white/25">
-                            {product.currency ===
-                            "USD"
-                              ? `≈ ${formatNaira(
-                                  product.price *
-                                    NGN_PER_USD
-                                )}`
-                              : `≈ ${formatUSD(
-                                  product.price
-                                )} USD`}
-                          </div>
-                        </div>
-
-                        {product.reasons.length > 0 && (
-                          <div className="mt-5 rounded-2xl border border-white/[0.05] bg-white/[0.025] p-4">
-                            <div className="text-[10px] font-black uppercase tracking-[.15em] text-white/25">
-                              Why it fits
-                            </div>
-
-                            <div className="mt-2 space-y-1.5">
-                              {product.reasons
-                                .slice(0, 2)
-                                .map(
-                                  (
-                                    reason,
-                                    reasonIndex
-                                  ) => (
-                                    <div
-                                      key={`${product.product_id}-${reasonIndex}`}
-                                      className="text-xs font-medium text-white/50"
-                                    >
-                                      <span className="mr-1.5 text-emerald-400">
-                                        ✓
-                                      </span>
-                                      {reason}
-                                    </div>
-                                  )
-                                )}
-                            </div>
-                          </div>
-                        )}
-
-                        <a
-                          href={
-                            product.affiliate_url ||
-                            product.product_url
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-6 flex items-center justify-between rounded-2xl bg-white px-5 py-4 text-sm font-bold text-black transition hover:bg-white/90"
-                        >
-                          View product
-
-                          <span className="transition group-hover:translate-x-1">
-                            →
-                          </span>
-                        </a>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
             </div>
-          </section>
-        )}
+          ))}
+        </div>
+      </section>
 
-        {/* HOW IT WORKS */}
-        <section
-          id="how-it-works"
-          className="relative overflow-hidden border-t border-white/[0.06] bg-black"
-        >
-          <div className="mx-auto max-w-7xl px-5 py-28 sm:px-8">
-            <div className="max-w-2xl">
-              <p className="text-xs font-black uppercase tracking-[.2em] text-white/25">
-                The FindIt engine
-              </p>
+      {/* ───────────────── HOW IT WORKS ───────────────── */}
 
-              <h2 className="mt-5 text-4xl font-black tracking-[-0.05em] sm:text-6xl">
-                You describe it.
-                <br />
-                <span className="text-white/30">
-                  FindIt figures it out.
-                </span>
-              </h2>
-
-              <p className="mt-6 max-w-xl leading-7 text-white/35">
-                No complicated filters. No endless scrolling.
-                Just explain what you want and let the matching
-                system do the work.
-              </p>
+      <section
+        id="how"
+        className="relative z-10 border-y border-white/[0.06] bg-white/[0.015]"
+      >
+        <div className="mx-auto max-w-7xl px-6 py-32 lg:px-10">
+          <div className="max-w-2xl">
+            <div className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/50">
+              The engine
             </div>
 
-            <div className="mt-20 grid overflow-hidden rounded-[32px] border border-white/[0.08] md:grid-cols-3">
-              {[
-                {
-                  number: "01",
-                  title: "Describe",
-                  text: "Tell us your goal, budget, experience level and anything else that matters.",
-                },
-                {
-                  number: "02",
-                  title: "Understand",
-                  text: "FindIt turns your natural-language request into structured requirements.",
-                },
-                {
-                  number: "03",
-                  title: "Match",
-                  text: "Products are filtered and ranked according to what you actually asked for.",
-                },
-              ].map((step) => (
-                <div
-                  key={step.number}
-                  className="border-b border-white/[0.08] bg-[#080809] p-8 transition hover:bg-white/[0.025] last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0 sm:p-10"
-                >
-                  <div className="text-xs font-black text-white/15">
-                    {step.number}
-                  </div>
+            <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] sm:text-6xl">
+              Search less.
+              <br />
+              <span className="text-white/30">Decide faster.</span>
+            </h2>
+          </div>
 
-                  <div className="mt-14 text-xl font-bold">
-                    {step.title}
-                  </div>
+          <div className="mt-20 grid gap-px overflow-hidden rounded-[28px] border border-white/[0.07] bg-white/[0.05] md:grid-cols-4">
+            {[
+              {
+                number: "01",
+                title: "Understand",
+                text: "Your natural-language request becomes structured requirements.",
+              },
+              {
+                number: "02",
+                title: "Filter",
+                text: "Hard constraints remove products that do not actually fit.",
+              },
+              {
+                number: "03",
+                title: "Rank",
+                text: "Remaining products are scored against your preferences.",
+              },
+              {
+                number: "04",
+                title: "Explain",
+                text: "You see why each recommendation matches and where it compromises.",
+              },
+            ].map((step, index) => (
+              <div
+                key={step.number}
+                className="group relative min-h-[280px] bg-[#08080c] p-7 transition duration-500 hover:bg-[#0d0d13]"
+              >
+                <div className="text-[10px] tracking-[0.25em] text-violet-300/40">
+                  {step.number}
+                </div>
 
-                  <p className="mt-4 text-sm leading-7 text-white/30">
+                <div className="mt-20">
+                  <h3 className="text-lg font-medium">{step.title}</h3>
+
+                  <p className="mt-3 text-sm leading-6 text-white/35">
                     {step.text}
                   </p>
                 </div>
-              ))}
-            </div>
+
+                <div className="absolute bottom-0 left-0 h-px w-0 bg-gradient-to-r from-violet-500 to-cyan-400 transition-all duration-700 group-hover:w-full" />
+              </div>
+            ))}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* FINAL CTA */}
-        <section className="relative overflow-hidden border-t border-white/[0.06]">
-          <div className="absolute inset-0 bg-gradient-to-br from-violet-950/25 via-[#070708] to-orange-950/15" />
+      {/* ───────────────── CTA ───────────────── */}
 
-          <div className="relative mx-auto max-w-5xl px-5 py-28 text-center sm:px-8">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-lg font-black text-black">
-              F
+      <section className="relative z-10 px-6 py-40">
+        <div className="relative mx-auto max-w-5xl overflow-hidden rounded-[35px] border border-white/[0.08] bg-white/[0.025] px-6 py-24 text-center backdrop-blur-xl sm:px-12">
+          <div className="absolute left-1/2 top-0 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/20 blur-[100px]" />
+
+          <div className="relative">
+            <div className="text-[10px] uppercase tracking-[0.3em] text-violet-300/50">
+              LinkVerge
             </div>
 
-            <h2 className="mt-7 text-5xl font-black tracking-[-0.06em] sm:text-7xl">
-              Know what you need?
+            <h2 className="mx-auto mt-6 max-w-3xl text-4xl font-semibold tracking-[-0.05em] sm:text-6xl">
+              Stop browsing.
               <br />
-
-              <span className="bg-gradient-to-r from-violet-400 to-orange-300 bg-clip-text text-transparent">
-                Find it.
+              <span className="text-white/30">
+                Start finding what fits.
               </span>
             </h2>
 
-            <p className="mx-auto mt-6 max-w-xl text-white/35">
-              One search. Real requirements. Products that
-              actually fit.
-            </p>
-
             <button
-              onClick={scrollToSearch}
-              className="mt-9 rounded-full bg-white px-7 py-4 text-sm font-bold text-black shadow-xl transition duration-300 hover:-translate-y-1 hover:bg-white/90"
+              onClick={() => {
+                document
+                  .getElementById("discover")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="group relative mt-10 overflow-hidden rounded-full bg-white px-7 py-4 text-sm font-medium text-black transition duration-300 hover:scale-105"
             >
-              Start searching →
+              <span className="relative z-10">Start discovering</span>
+
+              <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-violet-200 to-transparent transition duration-700 group-hover:translate-x-full" />
             </button>
           </div>
-        </section>
-      </main>
+        </div>
+      </section>
 
-      {/* FOOTER */}
-      <footer className="border-t border-white/[0.06] bg-[#070708]">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-xs font-medium text-white/25 sm:px-8 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[10px] font-black text-black">
-              F
-            </div>
+      {/* ───────────────── FOOTER ───────────────── */}
 
-            <span>FindIt</span>
+      <footer className="relative z-10 border-t border-white/[0.06] px-6 py-10">
+        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 text-xs text-white/25 sm:flex-row">
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo.jpeg"
+              alt=""
+              className="h-7 w-7 rounded-lg"
+            />
+            <span>LinkVerge</span>
           </div>
 
-          <span>
-            Discover less. Find better. © 2026 FindIt
-          </span>
+          <span>Digital discovery, intelligently.</span>
         </div>
       </footer>
 
@@ -952,15 +787,156 @@ function App() {
             opacity: 0;
             transform: translateY(18px);
           }
-
           to {
             opacity: 1;
             transform: translateY(0);
           }
         }
+
+        @keyframes heroIn {
+          from {
+            opacity: 0;
+            transform: translateY(30px) scale(.97);
+            filter: blur(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+          }
+        }
+
+        @keyframes searchIn {
+          from {
+            opacity: 0;
+            transform: translateY(25px) scale(.96);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes placeholderIn {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes cardIn {
+          from {
+            opacity: 0;
+            transform: translateY(25px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes floatOne {
+          0%, 100% {
+            transform: translateY(0) rotate(-6deg);
+          }
+          50% {
+            transform: translateY(-15px) rotate(-3deg);
+          }
+        }
+
+        @keyframes floatTwo {
+          0%, 100% {
+            transform: translateY(0) rotate(6deg);
+          }
+          50% {
+            transform: translateY(-20px) rotate(9deg);
+          }
+        }
+
+        @keyframes floatThree {
+          0%, 100% {
+            transform: translateY(0) rotate(3deg);
+          }
+          50% {
+            transform: translateY(-12px) rotate(0deg);
+          }
+        }
+
+        @keyframes marquee {
+          from {
+            transform: translateX(0);
+          }
+          to {
+            transform: translateX(-33.333%);
+          }
+        }
+
+        @keyframes slowGrid {
+          from {
+            transform: translate(0, 0);
+          }
+          to {
+            transform: translate(70px, 70px);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          *,
+          *::before,
+          *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+          }
+        }
       `}</style>
-    </div>
+    </main>
   );
 }
 
-export default App;
+/* ─────────────────────────────────────────────
+   FLOATING PRODUCT
+───────────────────────────────────────────── */
+
+function FloatingProduct({
+  product,
+  rotate,
+}: {
+  product: Product;
+  rotate: string;
+}) {
+  return (
+    <div
+      className={`group w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b10]/80 p-2 shadow-2xl backdrop-blur-xl transition duration-500 hover:z-50 hover:scale-110 hover:rotate-0 hover:border-violet-400/30 ${rotate}`}
+    >
+      <div className="relative aspect-[16/10] overflow-hidden rounded-xl">
+        <img
+          src={product.image}
+          alt=""
+          className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
+        />
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+
+        <div className="absolute bottom-2 left-2 right-2 text-[9px] font-medium text-white/80">
+          {product.title}
+        </div>
+      </div>
+
+      <div className="px-2 py-2">
+        <div className="text-[8px] uppercase tracking-[0.2em] text-white/25">
+          {product.type}
+        </div>
+
+        <div className="mt-1 text-xs text-white/70">
+          {product.price}
+        </div>
+      </div>
+    </div>
+  );
+}

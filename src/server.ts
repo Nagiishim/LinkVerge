@@ -13,6 +13,7 @@ import {
 } from "./data/catalog.js";
 
 const app = express();
+
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
@@ -50,9 +51,9 @@ app.post("/parse-intent", (req, res) => {
 /*
  * Affiliate click tracking + redirect
  *
- * User clicks a FindIt product
+ * User clicks a LinkVerge product
  *        ↓
- * FindIt records the click
+ * LinkVerge records the click
  *        ↓
  * User is redirected to the affiliate URL
  */
@@ -132,9 +133,9 @@ app.use(
 async function startServer(): Promise<void> {
   await initializeCatalog();
 
-  app.listen(PORT, () => {
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(
-      `FindIt API running on http://localhost:${PORT}`
+      `LinkVerge API running on port ${PORT}`
     );
 
     console.log(
@@ -144,6 +145,6 @@ async function startServer(): Promise<void> {
 }
 
 startServer().catch((error: unknown) => {
-  console.error("Failed to start FindIt:", error);
+  console.error("Failed to start LinkVerge:", error);
   process.exit(1);
 });
