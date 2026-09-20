@@ -7,9 +7,13 @@ const OUTPUT_DIR = path.join(process.cwd(), "tools", "selar-importer", "data");
 const OUTPUT_PATH = path.join(OUTPUT_DIR, "multi-type-products.json");
 const META_PATH = path.join(OUTPUT_DIR, "exhaustive-marketplace-meta.json");
 
-const DELAY_MS = 250;
+const DELAY_MS = 100;
 const MAX_PAGE_SAFETY = 3000;
 const MAX_RETRIES = 2;
+const FETCH_CONCURRENCY = 5;
+const AFFILIATE_CONCURRENCY = 5;
+const CHECKPOINT_EVERY_PAGES = 50;
+const AFFILIATE_CHECKPOINT_EVERY = 50;
 
 type ProductType =
   | "course"
@@ -585,136 +589,140 @@ async function main(): Promise<void> {
     );
 
     const signatures = new Set<string>();
+    let nextPage = 1;
+    let targetDone = false;
 
-    for (
-      let pageNumber = 1;
-      pageNumber <= MAX_PAGE_SAFETY;
-      pageNumber += 1
-    ) {
-      const targetUrl = withPage(
-        target.discoveredUrl,
-        pageNumber
-      );
+    while (!targetDone && nextPage <= MAX_PAGE_SAFETY) {
+      const batch = Array.from(
+        { length: FETCH_CONCURRENCY },
+        (_, offset) => nextPage + offset
+      ).filter((pageNumber) => pageNumber <= MAX_PAGE_SAFETY);
 
-      if (visitedPages.has(targetUrl)) {
-        break;
-      }
-
-      visitedPages.add(targetUrl);
-
-      let response: SearchResponse | null = null;
-
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-        response = await fetchInertiaUrl(
-          page,
-          targetUrl,
-          inertiaVersion
+      const requests = batch
+        .map((pageNumber) => {
+          const targetUrl = withPage(target.discoveredUrl!, pageNumber);
+          if (visitedPages.has(targetUrl)) return null;
+          visitedPages.add(targetUrl);
+          return { pageNumber, targetUrl };
+        })
+        .filter(
+          (item): item is { pageNumber: number; targetUrl: string } =>
+            item !== null
         );
 
-        if (response.status !== 409) {
+      if (requests.length === 0) break;
+
+      const responses = await Promise.all(
+        requests.map(async ({ pageNumber, targetUrl }) => {
+          let response: SearchResponse | null = null;
+
+          for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+            response = await fetchInertiaUrl(page, targetUrl, inertiaVersion);
+            if (response.status !== 409) break;
+            await sleep(250 * (attempt + 1));
+          }
+
+          return { pageNumber, response };
+        })
+      );
+
+      for (const { pageNumber, response } of responses.sort(
+        (a, b) => a.pageNumber - b.pageNumber
+      )) {
+        if (!response) {
+          console.log(`Page ${pageNumber}: no response; stopping target.`);
+          targetDone = true;
           break;
         }
 
-        await page.reload({
-          waitUntil: "domcontentloaded",
-          timeout: 30000,
-        });
-
-        inertiaVersion = await getInertiaVersion(page);
-      }
-
-      if (!response) {
-        throw new Error("No response returned.");
-      }
-
-      if (response.status !== 200) {
-        console.log(
-          `Page ${pageNumber}: HTTP ${response.status}; stopping target.`
-        );
-        break;
-      }
-
-      const payload = parseJson(response.text);
-
-      if (!payload) {
-        console.log(
-          `Page ${pageNumber}: invalid Inertia payload; stopping target.`
-        );
-        break;
-      }
-
-      const rawProducts = extractProducts(payload);
-      const products = rawProducts.filter(isMarketplaceProduct);
-
-      if (rawProducts.length === 0) {
-        console.log(
-          `Page ${pageNumber}: 0 products; target exhausted.`
-        );
-        break;
-      }
-
-      const signature = rawProducts
-        .map((product) => product.code)
-        .filter(Boolean)
-        .join("|");
-
-      if (signatures.has(signature)) {
-        console.log(
-          `Page ${pageNumber}: repeated page detected; stopping target.`
-        );
-        break;
-      }
-
-      signatures.add(signature);
-      pagesFetched += 1;
-
-      let newProducts = 0;
-
-      for (const product of products) {
-        if (!product.code) {
-          continue;
+        if (response.status !== 200) {
+          console.log(
+            `Page ${pageNumber}: HTTP ${response.status}; stopping target.`
+          );
+          targetDone = true;
+          break;
         }
 
-        const nextProduct: SelarProduct = {
-          ...(productMap.get(product.code) ?? {}),
-          ...product,
-          finditProductType:
-            product.finditProductType ??
-            classifyProduct(product),
-        };
-
-        if (!productMap.has(product.code)) {
-          newProducts += 1;
+        const payload = parseJson(response.text);
+        if (!payload) {
+          console.log(
+            `Page ${pageNumber}: invalid Inertia payload; stopping target.`
+          );
+          targetDone = true;
+          break;
         }
 
-        productMap.set(product.code, nextProduct);
+        const rawProducts = extractProducts(payload);
+        const products = rawProducts.filter(isMarketplaceProduct);
+
+        if (rawProducts.length === 0) {
+          console.log(`Page ${pageNumber}: 0 products; target exhausted.`);
+          targetDone = true;
+          break;
+        }
+
+        const signature = rawProducts
+          .map((product) => product.code)
+          .filter(Boolean)
+          .join("|");
+
+        if (signatures.has(signature)) {
+          console.log(
+            `Page ${pageNumber}: repeated page detected; stopping target.`
+          );
+          targetDone = true;
+          break;
+        }
+
+        signatures.add(signature);
+        pagesFetched += 1;
+
+        let newProducts = 0;
+        for (const product of products) {
+          if (!product.code) continue;
+
+          const nextProduct: SelarProduct = {
+            ...(productMap.get(product.code) ?? {}),
+            ...product,
+            finditProductType:
+              product.finditProductType ?? classifyProduct(product),
+          };
+
+          if (!productMap.has(product.code)) newProducts += 1;
+          productMap.set(product.code, nextProduct);
+        }
+
+        const pagination = extractPagination(payload);
+        if (pagination.total !== null) totalsSeen.add(pagination.total);
+
+        console.log(
+          `Page ${pageNumber}: raw=${rawProducts.length} | eligible=${products.length} | NEW=${newProducts} | UNIQUE=${productMap.size}` +
+            (pagination.total !== null
+              ? ` | REPORTED TOTAL=${pagination.total}`
+              : "")
+        );
+
+        if (
+          pagination.currentPage !== null &&
+          pagination.lastPage !== null &&
+          pagination.currentPage >= pagination.lastPage
+        ) {
+          targetDone = true;
+          break;
+        }
       }
 
-      await saveCatalog(productMap);
+      nextPage += FETCH_CONCURRENCY;
 
-      const pagination = extractPagination(payload);
-
-      if (pagination.total !== null) {
-        totalsSeen.add(pagination.total);
-      }
-
-      console.log(
-        `Page ${pageNumber}: raw=${rawProducts.length} | eligible=${products.length} | NEW=${newProducts} | UNIQUE=${productMap.size}` +
-          (pagination.total !== null
-            ? ` | REPORTED TOTAL=${pagination.total}`
-            : "")
-      );
-
-      if (
-        pagination.currentPage !== null &&
-        pagination.lastPage !== null &&
-        pagination.currentPage >= pagination.lastPage
-      ) {
-        break;
+      if (pagesFetched % CHECKPOINT_EVERY_PAGES < FETCH_CONCURRENCY) {
+        await saveCatalog(productMap);
+        console.log(`CHECKPOINT: ${productMap.size} products saved.`);
       }
 
       await sleep(DELAY_MS);
     }
+
+    await saveCatalog(productMap);
   }
 
   const products = Array.from(productMap.values());
@@ -727,59 +735,65 @@ async function main(): Promise<void> {
     `\nVerifying/generating affiliate links for ${products.length} products...`
   );
 
-  for (let index = 0; index < products.length; index += 1) {
-    const product = products[index];
+  const affiliateQueue = products
+    .map((product, index) => ({ product, index }))
+    .filter(({ product }) => {
+      const url =
+        typeof product.affiliateUrl === "string"
+          ? product.affiliateUrl
+          : typeof product.affiliate_url === "string"
+            ? product.affiliate_url
+            : null;
+      return Boolean(product.code) && !url?.includes("?affiliate=");
+    });
 
-    if (!product.code) {
-      failed += 1;
-      continue;
-    }
-
-    const current =
+  existing = products.filter((product) => {
+    const url =
       typeof product.affiliateUrl === "string"
         ? product.affiliateUrl
         : typeof product.affiliate_url === "string"
           ? product.affiliate_url
           : null;
+    return Boolean(url?.includes("?affiliate="));
+  }).length;
 
-    if (current?.includes("?affiliate=")) {
-      existing += 1;
-      continue;
-    }
+  for (let start = 0; start < affiliateQueue.length; start += AFFILIATE_CONCURRENCY) {
+    const batch = affiliateQueue.slice(start, start + AFFILIATE_CONCURRENCY);
 
-    try {
-      const affiliateUrl = await generateAffiliateLink(
-        page,
-        product.code
-      );
-
-      products[index] = {
-        ...product,
-        affiliateUrl,
-      };
-
-      productMap.set(product.code, products[index]);
-      generated += 1;
-    } catch (error) {
-      failed += 1;
-
-      console.log(
-        `Affiliate link failed [${index + 1}/${products.length}] ${product.code}: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    }
-
-    await saveCatalog(productMap);
-    await sleep(DELAY_MS);
+    await Promise.all(
+      batch.map(async ({ product, index }) => {
+        try {
+          const affiliateUrl = await generateAffiliateLink(page, product.code!);
+          products[index] = { ...product, affiliateUrl };
+          productMap.set(product.code!, products[index]);
+          generated += 1;
+        } catch (error) {
+          failed += 1;
+          console.log(
+            `Affiliate link failed [${index + 1}/${products.length}] ${product.code}: ${error instanceof Error ? error.message : "Unknown error"}`
+          );
+        }
+      })
+    );
 
     if (
-      (index + 1) % 25 === 0 ||
-      index === products.length - 1
+      start + batch.length >= affiliateQueue.length ||
+      (start + batch.length) % AFFILIATE_CHECKPOINT_EVERY < AFFILIATE_CONCURRENCY
     ) {
+      await saveCatalog(productMap);
+    }
+
+    const processed = Math.min(start + batch.length, affiliateQueue.length);
+    if (processed % 100 === 0 || processed === affiliateQueue.length) {
       console.log(
-        `[${index + 1}/${products.length}] generated=${generated} existing=${existing} failed=${failed}`
+        `Affiliate progress: ${processed}/${affiliateQueue.length} | generated=${generated} existing=${existing} failed=${failed}`
       );
     }
+
+    await sleep(DELAY_MS);
   }
+
+  await saveCatalog(productMap);
 
   const saved = JSON.parse(
     await fs.readFile(OUTPUT_PATH, "utf8")
